@@ -39,3 +39,6 @@ logs/
 .idea/
 # 예시 환경변수 파일은 올린다
 !.env.example
+
+# 로컬 Claude 작업 파일은 올리지 않는다
+.claude/
