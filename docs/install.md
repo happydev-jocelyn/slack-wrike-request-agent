@@ -45,6 +45,22 @@
 
 M3에서는 이 ID들을 Slack 홈 탭에서 이름으로 입력하면 앱이 찾아 줍니다.
 
+## 3-1. AI 의견 (선택)
+
+Slack은 앱에 LLM을 제공하지 않으므로, 쓰려는 LLM의 API 키를 넣습니다. 요청 1건당 기존 일감 최대 50건을 함께 보내므로 호출 비용이 조금씩 듭니다.
+
+| 쓰려는 LLM | 설정 |
+|---|---|
+| Claude (기본) | `LLM_PROVIDER=anthropic`, `LLM_API_KEY`(https://console.anthropic.com 에서 발급). `LLM_MODEL`을 비우면 `claude-opus-5-5` |
+| OpenAI | `LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL=https://api.openai.com/v1`, `LLM_API_KEY`, `LLM_MODEL` |
+| Google Gemini | `LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL`에 Gemini의 OpenAI 호환 주소, `LLM_API_KEY`, `LLM_MODEL` |
+| 사내 프록시·로컬 모델(Ollama 등) | `LLM_PROVIDER=openai-compatible`, 그 서버의 `…/v1` 주소, 필요하면 키, `LLM_MODEL` |
+
+- 설정이 잘못되면(제공자 이름 오타, 필수 값 누락 등) 요청마다 스레드에 "AI 의견 생성 실패: AI 설정 오류 …"가 남습니다.
+- `openai-compatible`은 Chat Completions API와 JSON 응답 모드(`response_format: json_object`)를 지원해야 합니다. 지원하지 않으면 스레드에 "AI 의견 생성 실패"가 남습니다.
+- 요청·일감 내용이 그 LLM 제공자로 전송됩니다. 회사 보안 정책에서 허용되는지 먼저 확인하세요.
+- 끄려면 `AI_OPINION=off`. 꺼도 등록·승인은 그대로 동작합니다.
+
 ## 4. 실행 (Python)
 
 ```bash
@@ -70,3 +86,5 @@ Windows PowerShell에서는 `.venv\Scripts\pip`, `.venv\Scripts\python`을 쓰�
 | "요청을 Wrike에 등록하지 못했습니다: Wrike not_authorized" | `WRIKE_TOKEN`, `WRIKE_BASE_URL`(지역) |
 | 담당자가 Wrike에 지정되지 않음 | Slack과 Wrike 계정 이메일이 같은지 (이메일로 매칭) |
 | ✅를 눌렀는데 "권한이 없습니다" | `APPROVER_IDS`에 그 사람의 멤버 ID가 있는지 |
+| 스레드에 "AI 의견 생성 실패" | `LLM_API_KEY`, `LLM_MODEL`, 회사 네트워크에서 LLM 주소 접속 가능 여부 |
+| AI 의견이 아예 안 달림 | 시작 로그의 "AI 의견을 끕니다" 경고(`AI_OPINION`, `LLM_PROVIDER` 설정, Claude면 `anthropic` 설치 여부) |

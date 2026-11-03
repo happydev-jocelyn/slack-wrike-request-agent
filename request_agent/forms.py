@@ -37,7 +37,8 @@ def should_suggest(event: dict, request_channel_id: str) -> bool:
     """요청 채널에 사람이 쓴 새 글이면 등록 제안을 띄운다(스레드 답글·봇·수정·삭제 제외)."""
     if event.get("channel") != request_channel_id:
         return False
-    if event.get("subtype") or event.get("bot_id"):
+    # 파일을 첨부한 글(file_share)은 사람이 쓴 새 글로 본다
+    if event.get("subtype") not in (None, "file_share") or event.get("bot_id"):
         return False
     thread_ts = event.get("thread_ts")
     if thread_ts and thread_ts != event.get("ts"):

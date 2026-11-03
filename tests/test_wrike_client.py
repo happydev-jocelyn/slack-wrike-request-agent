@@ -1,6 +1,7 @@
 """Wrike 클라이언트 계약 테스트 (AC2, AC7, AC10). 요청 형태는 Wrike API v4 문서 기준."""
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from request_agent.flows import Request, Status, TrackerError
 from request_agent.wrike import WrikeClient, WrikeConfig
@@ -130,6 +131,21 @@ class DecideCallsTest(unittest.TestCase):
         description = self.wrike.tasks[self.ticket.id]["description"]
         self.assertIn("재현 &lt;방법&gt;", description)
         self.assertIn('href="https://slack/archives/C1/p1"', description)
+
+    def test_list_recent_items(self) -> None:
+        now = datetime.now(timezone.utc)
+        items = self.client.list_recent_items(now)
+
+        lists = [(p, f) for m, p, f in self.wrike.requests if m == "GET" and p.endswith("/tasks")]
+        self.assertEqual([p for p, _ in lists], ["/folders/REQFOLDER/tasks"] * 2
+                         + ["/folders/WORKFOLDER/tasks"] * 2)
+        self.assertEqual(json.loads(lists[0][1]["status"]), ["Active"])
+        start = json.loads(lists[1][1]["createdDate"])["start"]
+        self.assertEqual(start, (now - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        self.assertEqual(json.loads(lists[0][1]["fields"]), ["briefDescription"])
+        self.assertEqual({c.id for c in items}, {self.ticket.id})
+        self.assertEqual(items[0].status, "Active")
+        self.assertEqual(items[0].created.tzinfo, timezone.utc)
 
     def test_comment(self) -> None:
         self.client.comment(self.ticket.id, "홍길동 확정")

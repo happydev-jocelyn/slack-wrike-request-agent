@@ -50,6 +50,9 @@ class ShouldSuggestTest(unittest.TestCase):
         for subtype in ("message_changed", "message_deleted", "channel_join", "bot_message"):
             self.assertFalse(should_suggest(self.event(subtype=subtype), CHANNEL))
 
+    def test_file_share_is_suggested(self) -> None:
+        self.assertTrue(should_suggest(self.event(subtype="file_share"), CHANNEL))
+
     def test_skips_empty_text(self) -> None:
         self.assertFalse(should_suggest(self.event(text="  "), CHANNEL))
 
