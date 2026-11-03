@@ -1,0 +1,65 @@
+{
+  "_metadata": {
+    "major_version": 1,
+    "minor_version": 1
+  },
+  "display_information": {
+    "name": "request-agent",
+    "description": "Slack 요청을 Wrike 티켓으로 등록하고 승인자 확정 시 일감을 만듭니다"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "request-agent",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/request",
+        "description": "요청 등록 폼 열기",
+        "should_escape": false
+      }
+    ],
+    "shortcuts": [
+      {
+        "name": "요청 등록",
+        "type": "global",
+        "callback_id": "request_global",
+        "description": "Wrike 요청 등록 폼 열기"
+      },
+      {
+        "name": "Wrike 요청으로 등록",
+        "type": "message",
+        "callback_id": "request_from_message",
+        "description": "이 메시지 내용으로 요청 등록 폼 열기"
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "commands",
+        "reactions:read",
+        "channels:read",
+        "channels:join",
+        "channels:history",
+        "users:read",
+        "users:read.email"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "message.channels",
+        "reaction_added"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": true,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}
