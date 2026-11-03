@@ -9,8 +9,12 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from request_agent.flows import Request, Status, Ticket, TrackerError, WorkItem
+from request_agent.review import RECENT_DAYS, Candidate
+
+WRIKE_TIME = "%Y-%m-%dT%H:%M:%SZ"
 
 # (method, url, form 파라미터, 헤더) -> (HTTP 상태, 응답 JSON)
 Transport = Callable[[str, str, dict[str, str], dict[str, str]], tuple[int, dict]]
@@ -153,6 +157,30 @@ class WrikeClient:
         link = f'Slack 요청: <a href="{html.escape(url)}">{html.escape(url)}</a>'
         description = task.get("description", "")
         self._call("PUT", f"/tasks/{ticket_id}", {"description": f"{description}<br>{link}"})
+
+    def list_recent_items(self, now: datetime) -> list[Candidate]:
+        """요청·전체 일감 폴더에서 진행 중이거나 최근 RECENT_DAYS일 안에 만든 항목을 가져온다."""
+        start = (now - timedelta(days=RECENT_DAYS)).strftime(WRIKE_TIME)
+        items: list[Candidate] = []
+        for folder_id in (self.config.request_folder_id, self.config.work_folder_id):
+            for extra in ({"status": ["Active"]}, {"createdDate": {"start": start}}):
+                params = {"descendants": "true", "fields": ["briefDescription"],
+                          "sortField": "CreatedDate", "sortOrder": "Desc", "pageSize": "200",
+                          **extra}
+                tasks = self._call("GET", f"/folders/{folder_id}/tasks", params)
+                try:
+                    items.extend(self._to_candidate(task, now) for task in tasks)
+                except (KeyError, ValueError) as e:
+                    raise TrackerError(f"Wrike 일감 목록을 해석하지 못했습니다({e})") from e
+        return items
+
+    @staticmethod
+    def _to_candidate(task: dict, now: datetime) -> Candidate:
+        created = datetime.strptime(task["createdDate"], WRIKE_TIME).replace(tzinfo=now.tzinfo)
+        return Candidate(id=task["id"], title=task["title"],
+                         summary=task.get("briefDescription", "")[:300],
+                         status=task.get("status", ""), created=created,
+                         permalink=task["permalink"])
 
     def delete_ticket(self, ticket_id: str) -> None:
         self._call("DELETE", f"/tasks/{ticket_id}")

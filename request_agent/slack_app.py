@@ -6,14 +6,18 @@
 import logging
 import os
 import threading
+from datetime import datetime, timezone
 from functools import cache
 
 from slack_bolt import Ack, App, Respond
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
-from request_agent.forms import request_form, should_suggest
 from request_agent.flows import Request, Status, Ticket, decide, submit_request
+from request_agent.forms import request_form, should_suggest
+from request_agent.llm import make_advisor
+from request_agent.review import Advisor, AdvisorError, post_opinion
 from request_agent.wrike import WrikeClient, WrikeConfig
 
 logging.basicConfig(level=logging.INFO)
@@ -61,6 +65,18 @@ wrike = WrikeClient(WrikeConfig(
 ), email_of=email_of)
 
 
+def load_advisor() -> Advisor | None:
+    """설정이 잘못됐거나 SDK가 없으면 경고 후 AI 의견을 끈다(등록·승인은 그대로 동작)."""
+    try:
+        return make_advisor(os.environ)
+    except AdvisorError as e:
+        log.warning("AI 의견을 끕니다: %s", e)
+        return None
+
+
+advisor = load_advisor()
+
+
 class SlackChat:
     """flows.Chat 포트 구현. reply는 thread_ts가 있는 요청 메시지 스레드에 단다."""
 
@@ -91,7 +107,11 @@ class SlackChat:
         self.client.chat_postMessage(channel=self.channel, thread_ts=self.thread_ts, text=text)
 
     def notify(self, user: str, text: str) -> None:
-        self.client.chat_postEphemeral(channel=self.channel, user=user, text=text)
+        try:
+            self.client.chat_postEphemeral(channel=self.channel, user=user, text=text)
+        except SlackApiError:
+            # 요청 채널 멤버가 아니면(단축키·다른 채널에서 등록) 앱 DM으로 보낸다
+            self.client.chat_postMessage(channel=user, text=text)
 
 
 def approve_emoji() -> str:
@@ -200,8 +220,13 @@ def submit_form(ack: Ack, body: dict, client: WebClient) -> None:
         assignee=values["assignee"]["v"]["selected_user"],
         requester=body["user"]["id"],
     )
-    ticket = submit_request(req, wrike, SlackChat(client, request_channel_id))
+    chat = SlackChat(client, request_channel_id)
+    ticket = submit_request(req, wrike, chat)
     log.info("요청 등록: ticket=%s", ticket.id if ticket else "실패")
+    if ticket and advisor:
+        opinion = post_opinion(req, ticket, wrike, advisor, chat, datetime.now(timezone.utc))
+        log.info("AI 의견: ticket=%s %s", ticket.id,
+                 f"유사 {len(opinion.similar)}건" if opinion else "실패")
 
 
 @app.event("reaction_added")

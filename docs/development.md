@@ -8,6 +8,9 @@
 |---|---|---|
 | `request_agent/flows.py` | 순수 로직 | 등록(`submit_request`)·확정/반려(`decide`) 흐름, 실패 시 되돌리기. `Tracker`(Wrike)·`Chat`(Slack) 포트 정의 |
 | `request_agent/forms.py` | 순수 로직 | 요청 폼(모달) 구성, 채널 글에 등록 제안을 띄울지 판정 |
+| `request_agent/review.py` | 순수 로직 | AI 의견: 비교 후보(진행 중·최근 90일, 최대 50건), 프롬프트, 응답 해석(후보 밖 id 제거·최대 3건), 문구. `Advisor` 포트 |
+| `request_agent/claude.py` | 경계 | Claude API 클라이언트(`Advisor` 구현). 구조화 출력(JSON 스키마), effort `low`, 거절 시 서버 측 fallback |
+| `request_agent/llm.py` | 경계 | 제공자 선택(`make_advisor`)과 OpenAI 호환 Chat Completions 클라이언트(`Advisor` 구현, JSON 응답 모드) |
 | `request_agent/wrike.py` | 경계 | Wrike API v4 클라이언트(`Tracker` 구현). 폼 파라미터, 배열은 JSON 문자열 |
 | `request_agent/slack_app.py` | 배선 | Bolt 핸들러(버튼·단축키·명령·이벤트), `Chat` 구현, 시작 처리 |
 | `app.py` | 진입점 | `python app.py` 또는 `slack run` |
@@ -28,6 +31,9 @@ python3 -m unittest discover -s tests -t .
 - `tests/test_flows.py`: 흐름 판정(권한·이미 처리됨·삭제됨·실패 시 되돌리기)
 - `tests/test_forms.py`: 폼 미리 채우기, 등록 제안 판정
 - `tests/test_wrike_client.py`: Wrike 요청 형태 계약 테스트
+- `tests/test_review.py`: AI 의견 후보·해석·문구, 실패 시 등록 유지
+- `tests/test_claude.py`: Claude 요청 형태 계약 테스트(SDK 없이 가짜 클라이언트)
+- `tests/test_llm.py`: OpenAI 호환 요청 형태·오류 처리, 제공자 선택
 
 ## 가짜 Wrike로 실행해 보기
 
@@ -77,7 +83,12 @@ M3의 홈 탭 설정 저장소가 생기면 그 구조를 채널 단위로 확�
 요청이 처리될 때마다 이전 버튼 메시지를 지우고(`chat.delete`) 새로 게시하면 됩니다. 채널 알림이 늘어나므로 설정으로 켜고 끄게 하는 것을 권합니다.
 
 ### 멘션으로 자연어 등록
-"@봇 로그인이 안 돼요, 담당 홍길동" 같은 글을 AI로 폼 항목에 나눠 넣는 방식입니다. M2의 AI 연동 위에 얹습니다.
+"@봇 로그인이 안 돼요, 담당 홍길동" 같은 글을 AI로 폼 항목에 나눠 넣는 방식입니다. `claude.ClaudeAdvisor`와 같은 방식(구조화 출력)으로 폼 스키마를 받으면 됩니다.
+
+### AI 의견 조정
+- 비교 범위·상한: `review.RECENT_DAYS`, `review.MAX_CANDIDATES`
+- 지시문: `review.SYSTEM_PROMPT`
+- 제공자·모델: `LLM_PROVIDER`, `LLM_MODEL`. 다른 방식의 API를 붙이려면 `Advisor.advise(system, prompt) -> dict`를 구현하고 `llm.make_advisor`에 분기를 추가합니다. 일감이 수천 건이면 후보를 미리 검색으로 좁히는 단계를 `list_recent_items` 앞에 둡니다.
 
 ## 코드 규칙
 

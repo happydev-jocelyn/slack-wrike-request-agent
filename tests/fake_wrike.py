@@ -6,6 +6,7 @@ import itertools
 import json
 import re
 import sys
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -22,12 +23,24 @@ class FakeWrike:
 
     def _new_task(self, title: str, parent: str, form: dict[str, str]) -> dict:
         task_id = next(self._ids)
+        created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         task = {"id": task_id, "title": title, "description": "", "scope": "WsTask",
                 "parentIds": [parent], "responsibleIds": [], "customStatusId": "",
+                "status": "Active", "createdDate": created,
                 "permalink": f"https://www.wrike.com/open.htm?id={task_id[-6:]}"}
         self.tasks[task_id] = task
         self._update(task, form)
         return task
+
+    def _list(self, folder_id: str, form: dict[str, str]) -> list[dict]:
+        tasks = [t for t in self.tasks.values()
+                 if folder_id in t["parentIds"] and t["scope"] != "RbTask"]
+        if "status" in form:
+            tasks = [t for t in tasks if t["status"] in json.loads(form["status"])]
+        if "createdDate" in form:
+            start = json.loads(form["createdDate"])["start"]
+            tasks = [t for t in tasks if t["createdDate"] >= start]
+        return [{**t, "briefDescription": t["description"][:120]} for t in tasks]
 
     @staticmethod
     def _update(task: dict, form: dict[str, str]) -> None:
@@ -51,6 +64,7 @@ class FakeWrike:
         if m := re.fullmatch(r"/folders/(\w+)/tasks", path):
             if method == "POST":
                 return 200, {"kind": "tasks", "data": [self._new_task(form["title"], m[1], form)]}
+            return 200, {"kind": "tasks", "data": self._list(m[1], form)}
         if re.fullmatch(r"/custom_item_types/\w+/instantiate", path):
             task = self._new_task(form["title"], form["parentId"], {})
             return 200, {"kind": "workItems", "data": [{"relatedType": "Task", "id": task["id"]}]}
