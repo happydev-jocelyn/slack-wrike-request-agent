@@ -15,7 +15,7 @@
 
 앱은 일감 데이터를 저장하지 않습니다. 요청 메시지의 Slack `metadata`에 Wrike 티켓 ID를 넣어 두고, 이모지가 눌리면 그 메시지를 다시 읽어 티켓을 찾습니다. 판단은 항상 Wrike의 현재 상태를 기준으로 합니다.
 
-명세(인수조건)는 [specs/1-request-agent/spec.md](../specs/1-request-agent/spec.md), 검증 계약과 진행 상황은 [tasks.md](../specs/1-request-agent/tasks.md)에 있습니다. 동작을 바꿀 때는 spec의 AC부터 고치고 테스트를 맞춥니다.
+명세(인수조건)와 진행 상황은 [이슈 #2](https://github.com/happydev-jocelyn/slack-wrike-request-agent/issues/2)에 있습니다. 동작을 바꿀 때는 이슈의 AC부터 고치고 테스트를 맞춥니다.
 
 ## 테스트
 

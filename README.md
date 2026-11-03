@@ -13,7 +13,7 @@ Slack 채널에서 받은 업무 요청을 Wrike 티켓(검토중)으로 등록�
 
 지금은 설정을 환경변수로 넣습니다(M3에서 Slack 홈 탭 설정으로 바뀝니다). 실제 Wrike 계정으로는 아직 확인하지 않았습니다.
 
-명세와 진행 상황은 [specs/1-request-agent/spec.md](specs/1-request-agent/spec.md)와 [specs/1-request-agent/tasks.md](specs/1-request-agent/tasks.md)에 있습니다.
+명세(인수조건)와 진행 상황은 [이슈 #2](https://github.com/happydev-jocelyn/slack-wrike-request-agent/issues/2)에 있습니다.
 
 ## 사용법
 

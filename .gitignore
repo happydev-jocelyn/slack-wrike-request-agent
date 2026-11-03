@@ -42,3 +42,6 @@ logs/
 
 # 로컬 Claude 작업 파일은 올리지 않는다
 .claude/
+
+# 로컬 작업 명세·진행 기록(명세는 GitHub 이슈에 둔다)
+specs/
