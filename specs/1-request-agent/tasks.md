@@ -43,7 +43,7 @@
 
 ### M3: 설정 홈 탭 + 운영
 - 다룸: 워크스페이스별 설정 저장(토큰 암호화), 관리자 전용 홈 탭, 연결 테스트, 상태 표시, Dockerfile·compose, 문서.  · 관련 AC: AC11, AC12, AC13, AC14
-- 문서(master 요청): `README.md`(사용법) · `docs/install.md`(로컬 Docker Desktop 설치부터 Slack 앱 생성·토큰·실행까지. M1 시점엔 Python 실행, M3에서 Docker 절 추가) · `docs/development.md`(구조·테스트·변경 방법·가짜 Wrike로 개발·확장 가이드: 채널 여러 개(채널별 승인자·Wrike 폴더), Wrike 직접 상태 변경 동기화 등) · `.claude/`(issues·spec·tasks 포함)도 함께 저장소에 올린다. 시크릿·`.slack/apps.dev.json`은 제외.
+- 문서(master 요청): `README.md`(사용법) · `docs/install.md`(로컬 Docker Desktop 설치부터 Slack 앱 생성·토큰·실행까지. M1 시점엔 Python 실행, M3에서 Docker 절 추가) · `docs/development.md`(구조·테스트·변경 방법·가짜 Wrike로 개발·확장 가이드: 채널 여러 개(채널별 승인자·Wrike 폴더), Wrike 직접 상태 변경 동기화 등) · `specs/`(spec·tasks)도 함께 올린다. `.claude/`·시크릿·`.slack/apps.dev.json`은 제외(master 지시).
 - 병렬: ∥ 설정 저장·암호화 / Docker·README
 - [ ] 게이트 M3: 관련 AC green + docker compose 실행 관찰 → /gate-review → 사람 확인
 
