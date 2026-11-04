@@ -37,6 +37,24 @@ def urllib_transport(method: str, url: str, params: dict[str, str],
             return e.code, json.loads(e.read() or b"{}")
 
 
+def wrike_call(transport: Transport, base_url: str, token: str, method: str, path: str,
+               params: dict | None = None) -> list[dict]:
+    """Wrike API를 호출해 data 배열을 돌려준다. 실패는 사용자에게 보여 줄 수 있는 TrackerError."""
+    form = {k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+            for k, v in (params or {}).items()}
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        status, body = transport(method, base_url + path, form, headers)
+    except (OSError, ValueError) as e:  # 연결 실패·타임아웃·JSON이 아닌 응답
+        raise TrackerError(f"Wrike에 연결하지 못했습니다({e})") from e
+    if status >= 400 or "error" in body:
+        message = f"Wrike {body.get('error', status)}"
+        if description := body.get("errorDescription"):
+            message += f": {description}"
+        raise TrackerError(message)
+    return body.get("data", [])
+
+
 @dataclass(frozen=True)
 class WrikeConfig:
     base_url: str  # 예: https://www.wrike.com/api/v4
@@ -57,19 +75,8 @@ class WrikeClient:
         self._status_by_id = {v: k for k, v in config.status_ids.items()}
 
     def _call(self, method: str, path: str, params: dict | None = None) -> list[dict]:
-        form = {k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
-                for k, v in (params or {}).items()}
-        headers = {"Authorization": f"Bearer {self.config.token}"}
-        try:
-            status, body = self.transport(method, self.config.base_url + path, form, headers)
-        except (OSError, ValueError) as e:  # 연결 실패·타임아웃·JSON이 아닌 응답
-            raise TrackerError(f"Wrike에 연결하지 못했습니다({e})") from e
-        if status >= 400 or "error" in body:
-            message = f"Wrike {body.get('error', status)}"
-            if description := body.get("errorDescription"):
-                message += f": {description}"
-            raise TrackerError(message)
-        return body.get("data", [])
+        return wrike_call(self.transport, self.config.base_url, self.config.token,
+                          method, path, params)
 
     def _contact_id(self, slack_user: str) -> str | None:
         email = self.email_of(slack_user)

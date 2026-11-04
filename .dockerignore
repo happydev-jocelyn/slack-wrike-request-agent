@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.slack
+.claude
+specs
+data
+tests
+docs
+__pycache__
+*.pyc

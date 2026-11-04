@@ -8,10 +8,10 @@ Slack 채널에서 받은 업무 요청을 Wrike 티켓(검토중)으로 등록�
 |---|---|---|
 | M1 | 요청 등록 → Wrike 티켓(검토중) → ✅ 확정·❌ 반려, 여러 등록 입구, 실패 처리 | 구현·테스트 완료 (가짜 Wrike로 실행 확인) |
 | M2 | AI(Claude 기본, OpenAI 호환 LLM 선택)가 기존 티켓·일감과 비교한 의견을 스레드와 Wrike 댓글에 남김 | 구현·테스트 완료 (실제 Claude 호출 확인 전) |
-| M3 | 앱 홈 탭 설정 화면(토큰·프로젝트·워크플로를 이름 또는 ID로), Docker 실행 | 예정 |
+| M3 | 앱 홈 탭 설정 화면(토큰·프로젝트·워크플로를 이름 또는 ID로, 없으면 만들기), Docker 실행 | 구현·테스트 완료 (가짜 Wrike로 확인) |
 | M4 | 실제 Wrike 계정으로 연동 확인 | 예정 |
 
-지금은 설정을 환경변수로 넣습니다(M3에서 Slack 홈 탭 설정으로 바뀝니다). 실제 Wrike 계정으로는 아직 확인하지 않았습니다.
+서버에는 Slack 토큰·관리자 ID·암호화 키만 넣고, 나머지는 Slack 앱 홈 탭에서 관리자가 설정합니다. 실제 Wrike 계정으로는 아직 확인하지 않았습니다.
 
 명세(인수조건)와 진행 상황은 [이슈 #2](https://github.com/happydev-jocelyn/slack-wrike-request-agent/issues/2)에 있습니다.
 
@@ -37,14 +37,16 @@ Slack 채널에서 받은 업무 요청을 Wrike 티켓(검토중)으로 등록�
 승인자가 아닌 사람이 누르면 그 사람에게만 "권한 없음"이 보입니다. Wrike에서 이미 처리되었거나 삭제된 요청은 바꾸지 않고 스레드에 현재 상태를 알립니다.
 
 ### 관리자
-- 설치와 실행: [docs/install.md](docs/install.md)
+앱 홈 탭에서 Wrike 토큰·프로젝트·폴더·전용 요청 워크플로·요청 채널·승인자·AI 설정을 입력합니다. 이름이나 ID 어느 쪽이든 되고, 없으면 만들기 버튼이 나옵니다. 홈 탭 맨 위의 "마지막 확인 시각"으로 앱이 살아 있는지 봅니다.
+
+- 설치와 실행(Docker): [docs/install.md](docs/install.md)
 - 기능 변경·확장: [docs/development.md](docs/development.md)
 
 요청 등록 버튼 메시지는 채널에 고정(pin)해 두면 항상 보입니다.
 
-## 설정 (환경변수)
+## 설정
 
-[.env.example](.env.example)에 전체 목록과 설명이 있습니다.
+서버 환경변수는 [.env.example](.env.example), 홈 탭 설정 항목은 [docs/install.md](docs/install.md)의 5절에 있습니다.
 
 ## 라이선스
 
