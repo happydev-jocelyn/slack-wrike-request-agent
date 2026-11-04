@@ -52,6 +52,18 @@ class SettingsStoreTest(unittest.TestCase):
         reopened = SettingsStore(self.path, ReversingCipher())
         self.assertEqual(reopened.load("T1"), SAMPLE)
 
+    def test_wrong_key_keeps_settings_without_secrets(self) -> None:
+        class OtherKey(ReversingCipher):
+            def decrypt(self, token: str) -> str:
+                raise ValueError("다른 키")
+
+        self.store.save("T1", SAMPLE)
+        loaded = SettingsStore(self.path, OtherKey()).load("T1")
+        assert loaded is not None
+        self.assertEqual((loaded.wrike_token, loaded.llm_api_key), ("", ""))
+        self.assertEqual(loaded.project, "운영")
+        self.assertFalse(loaded.is_complete())  # 다시 입력할 때까지 등록은 멈추고 안내된다
+
     def test_save_overwrites(self) -> None:
         self.store.save("T1", SAMPLE)
         self.store.save("T1", replace(SAMPLE, project="다른 프로젝트"))

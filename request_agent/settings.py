@@ -18,7 +18,7 @@ SECRET_FIELDS = ("wrike_token", "llm_api_key")
 
 class Cipher(Protocol):
     def encrypt(self, text: str) -> str: ...
-    def decrypt(self, token: str) -> str: ...
+    def decrypt(self, token: str) -> str: ...  # 키가 다르면 ValueError
 
 
 @dataclass(frozen=True)
@@ -112,7 +112,11 @@ def _from_json(raw: str, cipher: Cipher) -> Settings:
             data[name] = {Status[key]: value for key, value in data[name].items()}
     for name in SECRET_FIELDS:
         if data.get(name):
-            data[name] = cipher.decrypt(data[name])
+            try:
+                data[name] = cipher.decrypt(data[name])
+            except ValueError:
+                # SETTINGS_KEY가 바뀌면 토큰·키만 비우고 나머지 설정은 살린다(홈 탭에서 다시 입력)
+                data[name] = ""
     for name in ("approver_ids", "created_workflow_ids"):
         if name in data:
             data[name] = tuple(data[name])
@@ -169,7 +173,12 @@ class FernetCipher:
         return self._fernet.encrypt(text.encode()).decode()
 
     def decrypt(self, token: str) -> str:
-        return self._fernet.decrypt(token.encode()).decode()
+        from cryptography.fernet import InvalidToken
+
+        try:
+            return self._fernet.decrypt(token.encode()).decode()
+        except InvalidToken as e:
+            raise ValueError("SETTINGS_KEY로 복호화할 수 없습니다") from e
 
 
 if __name__ == "__main__":
