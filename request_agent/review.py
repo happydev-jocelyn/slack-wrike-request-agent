@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
-from request_agent.flows import Chat, Request, Ticket, TrackerError
+from request_agent.flows import Chat, Request, Ticket, TrackerError, slack_escape
 
 RECENT_DAYS = 90
 MAX_CANDIDATES = 50  # 프롬프트 크기와 비용 상한
@@ -111,12 +111,15 @@ def format_opinion(opinion: Opinion, slack: bool) -> str:
     lines = [":robot_face: AI 의견" if slack else "AI 의견"]
     if not opinion.similar:
         lines.append(NO_SIMILAR)
+    # Slack에서는 일감 제목과 AI가 쓴 글이 멘션·링크로 해석되지 않게 한다
+    esc = slack_escape if slack else (lambda text: text)
     for s in opinion.similar:
         c = s.candidate
-        link = f"<{c.permalink}|{c.title}>" if slack else f"{c.title} ({c.permalink})"
-        lines.append(f"• {link} — {s.reason}")
+        link = (f"<{c.permalink}|{esc(c.title)}>" if slack
+                else f"{c.title} ({c.permalink})")
+        lines.append(f"• {link} — {esc(s.reason)}")
     if opinion.comment:
-        lines.append(opinion.comment)
+        lines.append(esc(opinion.comment))
     return "\n".join(lines)
 
 

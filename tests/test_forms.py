@@ -19,6 +19,10 @@ class RequestFormTest(unittest.TestCase):
                          ["category", "title", "body", "assignee"])
         self.assertNotIn("initial_value", body_element(view))
 
+    def test_title_length_capped(self) -> None:
+        title = next(b for b in request_form(CATEGORIES)["blocks"] if b["block_id"] == "title")
+        self.assertEqual(title["element"]["max_length"], 200)
+
     def test_prefill_body(self) -> None:
         view = request_form(CATEGORIES, body="로그인이 안 돼요")
         self.assertEqual(body_element(view)["initial_value"], "로그인이 안 돼요")

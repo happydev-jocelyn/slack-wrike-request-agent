@@ -18,7 +18,8 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from request_agent.flows import Request, Status, Ticket, TrackerError, decide, submit_request
+from request_agent.flows import (
+    ChatError, Request, Status, Ticket, TrackerError, decide, slack_escape, submit_request)
 from request_agent.forms import request_form, should_suggest
 from request_agent.home import AppStatus, home_view, parse_settings_form, settings_form
 from request_agent.llm import make_advisor
@@ -39,25 +40,33 @@ REACTIONS = {os.environ.get("APPROVE_EMOJI", "white_check_mark"): Status.CONFIRM
 BUTTON_EVENT = "request_button"
 TICKET_EVENT = "request_ticket"
 CHOOSABLE_FIELDS = ("project", "request_folder", "work_folder", "ticket_type", "workflow")
+MAX_BODY_IN_MESSAGE = 2000  # 나머지 줄과 합쳐 section 3000자를 넘지 않게
 STATUS_FIELD = "status:"  # 상태 후보 고르기의 block 이름 접두사
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 store = (SettingsStore(DATA_DIR / "settings.db", FernetCipher(os.environ["SETTINGS_KEY"]))
          if os.environ.get("SETTINGS_KEY") else None)
 env_settings = Settings.from_env(os.environ)  # 홈 탭에 저장한 설정이 없을 때 쓴다
-ticket_locks: dict[str, threading.Lock] = {}
-ticket_locks_guard = threading.Lock()
+# 같은 티켓의 이모지를 한 번에 하나씩 처리한다. 티켓 ID를 해시해 고정 개수의 잠금을 나눠 쓴다
+ticket_locks = [threading.Lock() for _ in range(64)]
 
 
 @cache
+def profile_of(user: str) -> dict:
+    """사용자 프로필. 비활성·외부 사용자처럼 조회가 안 되면 빈 값(담당자 매칭만 빠진다)."""
+    try:
+        return app.client.users_info(user=user)["user"]["profile"]
+    except SlackApiError as e:
+        log.warning("사용자 정보 조회 실패(%s): %s", user, e)
+        return {}
+
+
 def email_of(user: str) -> str | None:
-    profile = app.client.users_info(user=user)["user"]["profile"]
-    return profile.get("email")
+    return profile_of(user).get("email")
 
 
-@cache
 def name_of(user: str) -> str:
-    profile = app.client.users_info(user=user)["user"]["profile"]
+    profile = profile_of(user)
     return profile.get("display_name") or profile.get("real_name") or user
 
 
@@ -117,18 +126,26 @@ class SlackChat:
         self.client, self.channel, self.thread_ts = client, channel, thread_ts
 
     def post_request(self, req: Request, ticket: Ticket) -> str:
-        res = self.client.chat_postMessage(
-            channel=self.channel,
-            text=f"새 요청: {req.title}",
-            metadata={"event_type": TICKET_EVENT, "event_payload": {"ticket_id": ticket.id}},
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": (
-                f"*새 요청* · 상태: *{Status.REVIEWING.value}*\n"
-                f"[{req.category}] *<{ticket.permalink}|{req.title}>*\n{req.body}\n"
-                f"담당자: <@{req.assignee}> · 요청자: <@{req.requester}>\n"
-                f"_승인자는 :{approve_emoji()}: 확정 · :{reject_emoji()}: 반려_")}}],
-        )
-        self.thread_ts = res["ts"]  # 이후 reply는 이 메시지 스레드에 단다
-        link = self.client.chat_getPermalink(channel=self.channel, message_ts=res["ts"])
+        body = req.body
+        if len(body) > MAX_BODY_IN_MESSAGE:  # section 글자 수 제한(3000) 안에 들게 줄인다
+            body = body[:MAX_BODY_IN_MESSAGE] + "… (전체 내용은 Wrike 티켓)"
+        try:
+            res = self.client.chat_postMessage(
+                channel=self.channel,
+                text=f"새 요청: {req.title}",
+                metadata={"event_type": TICKET_EVENT, "event_payload": {"ticket_id": ticket.id}},
+                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": (
+                    f"*새 요청* · 상태: *{Status.REVIEWING.value}*\n"
+                    f"[{slack_escape(req.category)}] "
+                    f"*<{ticket.permalink}|{slack_escape(req.title)}>*\n{slack_escape(body)}\n"
+                    f"담당자: <@{req.assignee}> · 요청자: <@{req.requester}>\n"
+                    f"_승인자는 :{approve_emoji()}: 확정 · :{reject_emoji()}: 반려_")}}],
+            )
+            self.thread_ts = res["ts"]  # 이후 reply는 이 메시지 스레드에 단다
+            link = self.client.chat_getPermalink(channel=self.channel, message_ts=res["ts"])
+        except SlackApiError as e:
+            self.retract_request()
+            raise ChatError(e.response.get("error", str(e))) from e
         return link["permalink"]
 
     def retract_request(self) -> None:
@@ -163,12 +180,25 @@ def channel_message(channel: str, ts: str) -> dict | None:
     return messages[0] if messages and messages[0]["ts"] == ts else None
 
 
+def is_button(message: dict) -> bool:
+    if message.get("metadata", {}).get("event_type") == BUTTON_EVENT:
+        return True
+    return any(element.get("action_id") == "open_request_form"
+               for block in message.get("blocks", []) for element in block.get("elements", []))
+
+
 def ensure_button(channel: str) -> None:
-    """채널에 참여하고, 요청 등록 버튼 메시지가 최근 메시지에 없으면 게시한다."""
+    """채널에 참여하고, 고정된 메시지나 최근 메시지에 요청 등록 버튼이 없으면 게시한다."""
     app.client.conversations_join(channel=channel)
+    try:  # 버튼을 고정해 두면 메시지가 많이 쌓여도 다시 게시하지 않는다
+        pinned = [item["message"] for item in app.client.pins_list(channel=channel)["items"]
+                  if item.get("type") == "message"]
+    except SlackApiError as e:
+        log.warning("고정 메시지 조회 실패: %s", e)
+        pinned = []
     history = app.client.conversations_history(
         channel=channel, limit=200, include_all_metadata=True)
-    if any(m.get("metadata", {}).get("event_type") == BUTTON_EVENT for m in history["messages"]):
+    if any(is_button(m) for m in [*pinned, *history["messages"]]):
         return
     app.client.chat_postMessage(
         channel=channel, text="요청 등록",
@@ -251,8 +281,10 @@ def submit_form(ack: Ack, body: dict, client: WebClient, context: BoltContext) -
     ack()
     rt = runtime(team_of(body, context))
     values = body["view"]["state"]["values"]
+    category = values["category"]["v"]["selected_option"]["value"]
     req = Request(
-        category=rt.settings.categories[values["category"]["v"]["selected_option"]["value"]],
+        # 입력창을 연 뒤 관리자가 카테고리를 바꿨으면 제출된 값을 그대로 쓴다
+        category=rt.settings.categories.get(category, category),
         title=values["title"]["v"]["value"],
         body=values["body"]["v"]["value"],
         assignee=values["assignee"]["v"]["selected_user"],
@@ -287,9 +319,7 @@ def on_reaction(body: dict, event: dict, client: WebClient, context: BoltContext
         return
 
     ticket_id = metadata["event_payload"]["ticket_id"]
-    with ticket_locks_guard:
-        lock = ticket_locks.setdefault(ticket_id, threading.Lock())
-    with lock:  # 같은 티켓에 이모지가 동시에 눌려도 한 번만 처리한다
+    with ticket_locks[hash(ticket_id) % len(ticket_locks)]:  # 동시에 눌려도 한 번만 처리한다
         chat = SlackChat(client, channel, item["ts"])
         changed = decide(decision, event["user"], ticket_id, set(rt.settings.approver_ids),
                          rt.wrike, chat, user_name=name_of(event["user"]))
@@ -436,18 +466,31 @@ def refresh_status(team_id: str) -> None:
         statuses[team_id] = status
 
 
+def known_teams() -> set[str]:
+    with state_lock:
+        teams = set(runtimes)
+    return teams | (set(store.teams()) if store else set())
+
+
 def heartbeat() -> None:
-    """주기적으로 Wrike 연결을 확인하고 관리자 홈 탭을 갱신한다(시각이 멈추면 앱이 꺼진 것)."""
+    """주기적으로 Wrike 연결을 확인하고 관리자 홈 탭을 갱신한다(시각이 멈추면 앱이 꺼진 것).
+
+    views.publish는 사용자 단위라, 워크스페이스가 여럿이면 서로 덮어쓰지 않게
+    홈 탭은 열 때만 갱신하고 여기서는 상태만 확인한다.
+    """
     while True:
-        teams = set(store.teams()) if store else set()
-        teams |= set(runtimes)
-        for team_id in teams:
-            try:
+        try:
+            teams = known_teams()
+            for team_id in teams:
                 refresh_status(team_id)
-                for admin in ADMIN_IDS:
-                    publish_home(app.client, team_id, admin)
-            except Exception:  # 한 워크스페이스가 실패해도 다음 주기에 다시 시도한다
-                log.exception("상태 확인 실패: %s", team_id)
+                if len(teams) == 1:
+                    for admin in ADMIN_IDS:
+                        try:
+                            publish_home(app.client, team_id, admin)
+                        except SlackApiError as e:  # 다른 관리자 갱신은 계속한다
+                            log.warning("홈 탭 갱신 실패(%s): %s", admin, e)
+        except Exception:  # 어떤 오류가 나도 스레드를 살려 다음 주기에 다시 시도한다
+            log.exception("상태 확인 실패")
         time.sleep(HEARTBEAT_SECONDS)
 
 

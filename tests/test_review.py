@@ -68,6 +68,14 @@ class FormatTest(unittest.TestCase):
         self.assertIn("<https://wrike/A|로그인 수정> — 같은 화면", format_opinion(opinion, True))
         self.assertIn("로그인 수정 (https://wrike/A)", format_opinion(opinion, False))
 
+    def test_slack_text_is_escaped(self) -> None:
+        opinion = Opinion((Similar(item("A", 1, title="a|b>c"), "<!channel> 확인"),), "<!here>")
+        text = format_opinion(opinion, slack=True)
+        self.assertNotIn("<!channel>", text)
+        self.assertNotIn("<!here>", text)
+        self.assertIn("<https://wrike/A|a|b&gt;c>", text)
+        self.assertIn("<!channel> 확인", format_opinion(opinion, slack=False))  # Wrike는 평문
+
     def test_prompt_lists_candidates_and_request(self) -> None:
         prompt = build_prompt(REQ, [item("A", 1, "Active", "로그인 수정")])
         self.assertIn("비밀번호 재설정 후 로그인 실패", prompt)

@@ -37,6 +37,15 @@ class TrackerError(Exception):
     """Wrike 호출 실패. 메시지는 사용자에게 그대로 보여 줄 수 있어야 한다."""
 
 
+class ChatError(Exception):
+    """Slack 게시 실패. 메시지는 사용자에게 그대로 보여 줄 수 있어야 한다."""
+
+
+def slack_escape(text: str) -> str:
+    """사용자·AI가 쓴 글을 Slack mrkdwn에 넣을 때 멘션·링크 문법으로 해석되지 않게 한다."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 class Tracker(Protocol):
     def create_ticket(self, req: Request) -> Ticket: ...
     def get_ticket(self, ticket_id: str) -> Ticket | None: ...  # 삭제됐으면 None
@@ -61,7 +70,17 @@ def submit_request(req: Request, tracker: Tracker, chat: Chat) -> Ticket | None:
     except TrackerError as e:
         chat.notify(req.requester, f"요청을 Wrike에 등록하지 못했습니다: {e}")
         return None
-    message_url = chat.post_request(req, ticket)
+    try:
+        message_url = chat.post_request(req, ticket)
+    except ChatError as e:
+        # 채널 메시지 없이 티켓만 남지 않게 지운다
+        reason = f"요청 메시지를 게시하지 못했습니다: {e}"
+        try:
+            tracker.delete_ticket(ticket.id)
+        except TrackerError:
+            reason += f" (Wrike에 남은 티켓을 직접 삭제해 주세요: {ticket.permalink})"
+        chat.notify(req.requester, reason)
+        return None
     try:
         tracker.add_slack_link(ticket.id, message_url)
     except TrackerError as e:

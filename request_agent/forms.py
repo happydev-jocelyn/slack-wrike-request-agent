@@ -2,6 +2,7 @@
 
 # Slack plain_text_input의 최대 길이
 MAX_INPUT_LENGTH = 3000
+MAX_TITLE_LENGTH = 200  # 요청 메시지(section 3000자) 안에 들도록
 
 
 def request_form(categories: dict[str, str], body: str = "") -> dict:
@@ -22,7 +23,8 @@ def request_form(categories: dict[str, str], body: str = "") -> dict:
                  for value, label in categories.items()]}},
             {"type": "input", "block_id": "title",
              "label": {"type": "plain_text", "text": "일감 제목"},
-             "element": {"type": "plain_text_input", "action_id": "v"}},
+             "element": {"type": "plain_text_input", "action_id": "v",
+                         "max_length": MAX_TITLE_LENGTH}},
             {"type": "input", "block_id": "body",
              "label": {"type": "plain_text", "text": "일감 내용"},
              "element": body_input},

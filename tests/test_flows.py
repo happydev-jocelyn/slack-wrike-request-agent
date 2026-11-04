@@ -2,7 +2,8 @@
 import unittest
 
 from request_agent.flows import (
-    Request, Status, Ticket, TrackerError, WorkItem, decide, submit_request)
+    ChatError, Request, Status, Ticket, TrackerError, WorkItem, decide, slack_escape,
+    submit_request)
 
 APPROVER = "U_APPROVER"
 OTHER = "U_OTHER"
@@ -59,12 +60,15 @@ class FakeTracker:
 
 
 class FakeChat:
-    def __init__(self) -> None:
+    def __init__(self, fail_post: bool = False) -> None:
+        self.fail_post = fail_post
         self.posted: list[tuple[Request, Ticket]] = []
         self.replies: list[str] = []
         self.private: list[tuple[str, str]] = []
 
     def post_request(self, req: Request, ticket: Ticket) -> str:
+        if self.fail_post:
+            raise ChatError("invalid_blocks")
         self.posted.append((req, ticket))
         return "https://slack/archives/C1/p1"
 
@@ -96,6 +100,13 @@ class SubmitTest(unittest.TestCase):
         self.assertEqual(user, REQ.requester)
         self.assertIn("토큰이 유효하지 않습니다", text)
 
+    def test_slack_post_failure_deletes_ticket(self) -> None:
+        tracker, chat = FakeTracker(), FakeChat(fail_post=True)
+        self.assertIsNone(submit_request(REQ, tracker, chat))
+        self.assertEqual(tracker.tickets, {})  # 메시지 없이 티켓만 남지 않는다
+        self.assertEqual(chat.private[0][0], REQ.requester)
+        self.assertIn("invalid_blocks", chat.private[0][1])
+
     def test_slack_link_failure_rolls_back(self) -> None:
         tracker, chat = FakeTracker(), FakeChat()
         tracker.fail_link = True
@@ -105,6 +116,11 @@ class SubmitTest(unittest.TestCase):
         self.assertEqual(chat.replies, [])
         self.assertEqual(chat.private[0][0], REQ.requester)
         self.assertIn("권한 없음", chat.private[0][1])
+
+
+class SlackEscapeTest(unittest.TestCase):
+    def test_escapes_control_characters(self) -> None:
+        self.assertEqual(slack_escape("<!channel> a&b > c"), "&lt;!channel&gt; a&amp;b &gt; c")
 
 
 class DecideTest(unittest.TestCase):
