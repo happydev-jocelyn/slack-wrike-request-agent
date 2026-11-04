@@ -18,8 +18,26 @@ class FakeWrike:
         self.tasks: dict[str, dict] = {}
         self.comments: list[dict] = []
         self.requests: list[tuple[str, str, dict[str, str]]] = []
-        self.contacts = [{"id": "KUAAAAA1", "profiles": [{"email": "assignee@example.com"}]}]
+        self.contacts = [{"id": "KUAAAAA1", "firstName": "담당", "lastName": "자",
+                          "profiles": [{"email": "assignee@example.com"}]}]
         self._ids = (f"IEAAAAAAKQ{n:06d}" for n in itertools.count(1))
+        self._setup_ids = (f"IEAAAAAAI4{n:06d}" for n in itertools.count(1))
+        # 설정 화면용: 루트 아래 프로젝트 하나, 그 아래 폴더 하나, 기본 워크플로 하나
+        self.folders: dict[str, dict] = {
+            "IEAAAAAAI4ROOT00": {"id": "IEAAAAAAI4ROOT00", "title": "Root", "scope": "WsRoot",
+                                 "parent": None},
+            "REQFOLDER": {"id": "REQFOLDER", "title": "요청", "scope": "WsFolder",
+                          "parent": "IEAAAAAAI4PROJ01"},
+            "WORKFOLDER": {"id": "WORKFOLDER", "title": "전체 일감", "scope": "WsFolder",
+                           "parent": "IEAAAAAAI4PROJ01"},
+            "IEAAAAAAI4PROJ01": {"id": "IEAAAAAAI4PROJ01", "title": "운영", "scope": "WsFolder",
+                                 "parent": "IEAAAAAAI4ROOT00", "project": {}},
+        }
+        self.workflows: list[dict] = [{"id": "IEAAAAAAK4DEF001", "name": "Default Workflow",
+                                       "customStatuses": [
+                                           {"id": "IEAAAAAAJMDEF001", "name": "Active",
+                                            "group": "Active", "hidden": False}]}]
+        self.item_types = [{"id": "IEAAAAAAPITEM001", "title": "티켓"}]
 
     def _new_task(self, title: str, parent: str, form: dict[str, str]) -> dict:
         task_id = next(self._ids)
@@ -60,7 +78,10 @@ class FakeWrike:
             return 401, {"error": "not_authorized", "errorDescription": "Access token is invalid"}
 
         if method == "GET" and path == "/contacts":
-            return 200, {"kind": "contacts", "data": self.contacts}
+            return 200, {"kind": "contacts",
+                         "data": self.contacts[:1] if form.get("me") else self.contacts}
+        if result := self._handle_setup(method, path, form):
+            return result
         if m := re.fullmatch(r"/folders/(\w+)/tasks", path):
             if method == "POST":
                 return 200, {"kind": "tasks", "data": [self._new_task(form["title"], m[1], form)]}
@@ -81,6 +102,40 @@ class FakeWrike:
                 task["scope"] = "RbTask"  # Wrike는 삭제한 항목을 휴지통으로 옮긴다
             return 200, {"kind": "tasks", "data": [task]}
         return 400, {"error": "invalid_request", "errorDescription": f"{method} {path}"}
+
+    def _handle_setup(self, method: str, path: str,
+                      form: dict[str, str]) -> tuple[int, dict] | None:
+        """설정 화면이 쓰는 폴더·워크플로·티켓 유형 API."""
+        if path == "/folders" and method == "GET":
+            folders = list(self.folders.values())
+            if form.get("project") == "true":
+                folders = [f for f in folders if "project" in f]
+            return 200, {"kind": "folders", "data": folders}
+        if m := re.fullmatch(r"/folders/(\w+)/folders", path):
+            if method == "POST":
+                folder = {"id": next(self._setup_ids), "title": form["title"],
+                          "scope": "WsFolder", "parent": m[1]}
+                if "project" in form:
+                    folder["project"] = json.loads(form["project"])
+                self.folders[folder["id"]] = folder
+                return 200, {"kind": "folders", "data": [folder]}
+            children = [f for f in self.folders.values() if f["parent"] == m[1]]
+            return 200, {"kind": "folders", "data": [self.folders[m[1]], *children]}
+        if path == "/workflows":
+            if method == "POST":
+                workflow = {"id": next(self._setup_ids), "name": form["name"],
+                            "customStatuses": []}
+                self.workflows.append(workflow)
+                return 200, {"kind": "workflows", "data": [workflow]}
+            return 200, {"kind": "workflows", "data": self.workflows}
+        if (m := re.fullmatch(r"/workflows/(\w+)", path)) and method == "PUT":
+            workflow = next(w for w in self.workflows if w["id"] == m[1])
+            status = json.loads(form["customStatus"])
+            workflow["customStatuses"].append({**status, "id": next(self._setup_ids)})
+            return 200, {"kind": "workflows", "data": [workflow]}
+        if path == "/custom_item_types":
+            return 200, {"kind": "customItemTypes", "data": self.item_types}
+        return None
 
     def transport(self, method: str, url: str, form: dict[str, str],
                   headers: dict[str, str]) -> tuple[int, dict]:

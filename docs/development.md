@@ -11,8 +11,13 @@
 | `request_agent/review.py` | 순수 로직 | AI 의견: 비교 후보(진행 중·최근 90일, 최대 50건), 프롬프트, 응답 해석(후보 밖 id 제거·최대 3건), 문구. `Advisor` 포트 |
 | `request_agent/claude.py` | 경계 | Claude API 클라이언트(`Advisor` 구현). 구조화 출력(JSON 스키마), effort `low`, 거절 시 서버 측 fallback |
 | `request_agent/llm.py` | 경계 | 제공자 선택(`make_advisor`)과 OpenAI 호환 Chat Completions 클라이언트(`Advisor` 구현, JSON 응답 모드) |
+| `request_agent/resolve.py` | 순수 로직 | 설정의 이름·ID로 Wrike 항목 찾기(1개·없음·여러 개), 전용 워크플로 기본 상태 |
+| `request_agent/setup_check.py` | 순수 로직 | 설정 저장 시 연결 확인(`check_settings`)과 만들기(`apply_fix`). `WrikeSetup`을 통해서만 Wrike를 다룬다 |
+| `request_agent/home.py` | 순수 로직 | 홈 탭 화면·설정 입력창 Block Kit, 입력값 해석(비운 토큰은 유지) |
+| `request_agent/settings.py` | 경계 | 워크스페이스별 설정(`Settings`)과 SQLite 저장소, 토큰·키 Fernet 암호화, `genkey` |
+| `request_agent/wrike_setup.py` | 경계 | 설정용 Wrike 조회·생성(연결 확인, 프로젝트·폴더·워크플로·상태·티켓 유형) |
 | `request_agent/wrike.py` | 경계 | Wrike API v4 클라이언트(`Tracker` 구현). 폼 파라미터, 배열은 JSON 문자열 |
-| `request_agent/slack_app.py` | 배선 | Bolt 핸들러(버튼·단축키·명령·이벤트), `Chat` 구현, 시작 처리 |
+| `request_agent/slack_app.py` | 배선 | Bolt 핸들러(입구·이벤트·홈 탭·설정), 워크스페이스별 런타임, 5분 주기 상태 확인, `Chat` 구현 |
 | `app.py` | 진입점 | `python app.py` 또는 `slack run` |
 | `tests/fake_wrike.py` | 테스트 도구 | 문서화된 Wrike 응답 형태를 흉내 내는 메모리 서버 |
 
@@ -34,6 +39,8 @@ python3 -m unittest discover -s tests -t .
 - `tests/test_review.py`: AI 의견 후보·해석·문구, 실패 시 등록 유지
 - `tests/test_claude.py`: Claude 요청 형태 계약 테스트(SDK 없이 가짜 클라이언트)
 - `tests/test_llm.py`: OpenAI 호환 요청 형태·오류 처리, 제공자 선택
+- `tests/test_resolve.py`, `tests/test_setup_check.py`, `tests/test_wrike_setup.py`: 이름·ID 찾기, 연결 확인·만들기, 설정용 Wrike 요청 형태
+- `tests/test_settings.py`, `tests/test_home.py`: 설정 저장·암호화, 홈 탭·입력창(토큰 미표시)
 
 ## 가짜 Wrike로 실행해 보기
 
@@ -43,7 +50,7 @@ python3 -m unittest discover -s tests -t .
 python3 -m tests.fake_wrike 8765      # 터미널 1: 요청을 콘솔에 출력
 ```
 
-다른 터미널에서 `.env`의 Wrike 값을 다음처럼 두고 앱을 실행합니다.
+다른 터미널에서 `.env`의 Wrike 값을 다음처럼 두고 앱을 실행합니다(환경변수 설정 방식). 홈 탭 설정으로 해 보려면 `SETTINGS_KEY`·`ADMIN_IDS`도 넣습니다. 그러면 설정 입력창의 Wrike 지역이 "사용자 지정"(가짜 서버 주소)으로 보이고, 토큰 `fake-token`, 프로젝트 `운영`으로 연결 확인과 워크플로 만들기를 해 볼 수 있습니다.
 
 ```
 WRIKE_BASE_URL=http://127.0.0.1:8765/api/v4
@@ -70,11 +77,10 @@ WRIKE_STATUS_REJECTED=IEAAAAAAJMAAAAA3
 
 ### 채널 여러 개 (팀별 요청 창구)
 채널마다 승인자·Wrike 폴더·워크플로를 다르게 두려면:
-1. 설정을 채널 단위로 바꿉니다: `{채널 ID: {승인자, 요청 폴더, 전체 일감 폴더, 상태 ID}}`.
-2. `slack_app`의 `request_channel_id` 단일 값을 이 맵으로 바꾸고, 이벤트·이모지 처리에서 `event["channel"]`로 설정을 고릅니다.
-3. 채널별 `WrikeClient`를 만들거나, `WrikeConfig`를 호출마다 넘기도록 바꿉니다.
+1. `SettingsStore`의 키를 워크스페이스(`team_id`)에서 `(team_id, 채널 ID)`로 넓히고, `Settings`는 채널 하나의 설정(승인자·폴더·워크플로·상태)으로 둡니다.
+2. `slack_app.runtime(team_id)`를 `runtime(team_id, channel_id)`로 바꾸고, 이벤트·이모지 처리에서 `event["channel"]`로 런타임을 고릅니다.
+3. 홈 탭에 채널별 설정 목록과 "채널 추가"를 두고, 설정 입력창은 채널 하나를 편집하게 합니다.
 4. 단축키·`/request`처럼 채널이 정해지지 않은 입구는 폼에 "요청 채널" 선택 칸을 추가합니다.
-M3의 홈 탭 설정 저장소가 생기면 그 구조를 채널 단위로 확장하는 것이 자연스럽습니다.
 
 ### Wrike에서 직접 바꾼 상태를 Slack에 반영
 지금은 Slack ✅/❌만 처리하고, Wrike에서 직접 상태를 바꾸면 Slack 메시지는 그대로입니다. 반영하려면 Wrike 웹훅(`POST /webhooks`)을 받아야 하는데, 웹훅은 공개 HTTPS 주소가 필요해 Socket Mode만으로는 안 됩니다. 대안은 주기적으로 '요청' 폴더를 조회해 상태가 바뀐 티켓의 Slack 메시지에 답글을 다는 방식입니다.
